@@ -5,104 +5,24 @@ import conversation as cv
 
 import sys
 import getopt
-
+import os
 import re
 
-def find_verilog_modules(markdown_string, module_name='top_module'):
 
-    module_pattern1 = r'\bmodule\b\s+\w+\s*\([^)]*\)\s*;.*?endmodule\b'
-
-    module_pattern2 = r'\bmodule\b\s+\w+\s*#\s*\([^)]*\)\s*\([^)]*\)\s*;.*?endmodule\b'
-
-    module_matches1 = re.findall(module_pattern1, markdown_string, re.DOTALL)
-
-    module_matches2 = re.findall(module_pattern2, markdown_string, re.DOTALL)
-
-    module_matches = module_matches1 + module_matches2
-
-    if not module_matches:
-        return []
-
-    return module_matches
-
-#def find_verilog_modules(markdown_string,module_name='top_module'):
-#    print(markdown_string)
-#    # This pattern captures module definitions
-#    module_pattern = r'\bmodule\b\s+\w+\s*\(.*?\)\s*;.*?endmodule\b'
-#    # Find all the matched module blocks
-#    module_matches = re.findall(module_pattern, markdown_string, re.DOTALL)
-#    # If no module blocks found, return an empty list
-#    if not module_matches:
-#        return []
-#    return module_matches
-
-def write_code_blocks_to_file(markdown_string, module_name, filename):
-    # Find all code blocks using a regular expression (matches content between triple backticks)
-    #code_blocks = re.findall(r'```(?:\w*\n)?(.*?)```', markdown_string, re.DOTALL)
-    code_match = find_verilog_modules(markdown_string, module_name)
-
-    if not code_match:
-        print("No code blocks found in response")
-        exit(3)
-
-    #print("----------------------")
-    #print(code_match)
-    #print("----------------------")
-    # Open the specified file to write the code blocks
-    with open(filename, 'w') as file:
-        for code_block in code_match:
-            file.write(code_block)
-            file.write('\n')
-
-## WIP for feedback information
-def parse_iverilog_output(output):
-    # Regular expression to match the errors and warnings from the output
-    pattern = re.compile(r'^(.*\.v):(\d+): (error|warning): (.*)$', re.MULTILINE)
-
-    matches = pattern.findall(output)
-
-    results = []
-
-    for match in matches:
-        file_name, line_number, _, message = match
-        line_number = int(line_number)
-
-        # Extract the associated line from the file
-        with open(file_name, 'r') as file:
-            lines = file.readlines()
-            if 1 <= line_number <= len(lines):
-                associated_line = lines[line_number - 1].strip()  # -1 because list index starts from 0
-            else:
-                associated_line = "Unable to extract line. Line number may be out of range."
-
-        results.append({
-            'file_name': file_name,
-            'line_number': line_number,
-            'message': message,
-            'associated_line': associated_line
-        })
-
-    return results
-
-def generate_verilog(conv, model_type, model_id=""):
+def generate_response(conv, model_type="ChatGPT4", model_id=""):
     if model_type == "ChatGPT4":
         model = lm.ChatGPT4()
     elif model_type == "Claude":
         model = lm.Claude()
     elif model_type == "ChatGPT3p5":
         model = lm.ChatGPT3p5()
-    elif model_type == "CodeLLama":
+    elif model_type == "Bard":
         model = lm.CodeLlama(model_id)
 
     return(model.generate(conv))
 
-def contains_submodules(verilog_block):
-    # Define a pattern to match module instantiations
-    pattern = r'\b\w+\s+\w+\s*\(\s*\..*?\);'
-    matches = re.findall(pattern, verilog_block, re.DOTALL)
-    return len(matches) > 0
 
-def verilog_loop(design_prompt, module, testbench, max_iterations, model_type, log=None):
+def chat(design_prompt, log=None):
 
     conv = cv.Conversation(log_file=log)
 
@@ -120,142 +40,144 @@ def verilog_loop(design_prompt, module, testbench, max_iterations, model_type, l
 
     conv.add_message("user", design_prompt)
 
-    success = False
-    timeout = False
-
-    iterations = 0
-
-    filename = module+".v"
-    previous_block = ""
-
+    
     status = ""
     while not (success or timeout):
 
         # Generate a response
-        response = generate_verilog(conv, model_type)
+        response = generate_response(conv)
         conv.add_message("assistant", response)
 
-        # Check if the block contains submodules
-        if contains_submodules(response):
-            # Store the block for later use
-            previous_block = response
-            # If it does, add a message to the conversation instructing to implement the sub-modules
-            conv.add_message("user", "Please implement the instantiated modules completely in the design and then re-run the testbench.")
-            continue  # Continue to next iteration
+def get_and_confirm_design_components():
+    """
+    Prompt the user for a path to a text file, read the design components from the file,
+    display them to the user, and ask for confirmation.
 
-        # Combine the previous module block and the submodule block
-        combined_block = previous_block + "\n\n" + response
-
-        write_code_blocks_to_file(combined_block, module, filename)
-        proc = subprocess.run(["iverilog", "-o", module, filename, testbench],capture_output=True,text=True)
-
-        success = False
-        if proc.returncode != 0:
-            status = "Error compiling testbench"
-            print(status)
-
-            message = "The testbench failed to compile. Please fix the module. The output of iverilog is as follows:\n"+proc.stderr
-        elif proc.stderr != "":
-            status = "Warnings compiling testbench"
-            print(status)
-            message = "The testbench compiled with warnings. Please fix the module. The output of iverilog is as follows:\n"+proc.stderr
-        else:
-            proc = subprocess.run(["vvp", module],capture_output=True,text=True)
-            result = proc.stdout.strip().split('\n')[-2].split()
-            if result[-1] != 'passed!':
-                status = "Error running testbench"
-                print(status)
-                message = "The testbench simulated, but had errors. Please fix the module. The output of iverilog is as follows:\n"+proc.stdout
+    Returns:
+        list: The list of design components if confirmed, or an empty list if not confirmed.
+    """
+    path = input("Enter the path to the text file containing the design components: ")
+    try:
+        with open(path, 'r') as file:
+            components = [line.strip() for line in file if line.strip()]
+            print("Parsed design components:")
+            print("\n".join(components))
+            confirm = input("Are these correct (Y/N)? ")
+            if confirm.lower() == 'y':
+                return components
             else:
-                status = "Testbench ran successfully"
-                print(status)
-                message = ""
-                success = True
+                print("Please check the design components in the text file.")
+                return []
+    except Exception as e:
+        print(f"Error reading the file: {e}")
+        return []
 
-################################
-        with open("log_iter_"+str(iterations)+".txt", 'w') as file:
-            file.write('\n'.join(str(i) for i in conv.get_messages()))
-            file.write('\n\n Iteration status: ' + status + '\n')
+def ensure_log_file_exists(log=None):
+    """
+    Ensure the log file and its directory exists. Create them if they don't.
+
+    :param log: The path to the log file.
+    """
+    if log is not None:
+        if not os.path.exists(log):
+            with open(log, 'w') as file:
+                file.write('')  # Creating an empty file
 
 
-        if not success:
-            if iterations > 0:
-                conv.remove_message(2)
-                conv.remove_message(2)
 
-            #with open(testbench, 'r') as file: testbench_text = file.read()
-            #message = message + "\n\nThe testbench used for these results is as follows:\n\n" + testbench_text
-            conv.add_message("user", message)
+def fetch_library_path(library_name):
+    """
+    Fetch the library path mapped to the given library name from a JSON file.
+    
+    :param library_name: The name of the library.
+    :return: The path of the library or None if the library is not found.
+    """
 
-        if iterations >= max_iterations:
-            timeout = True
+    library_json_file = open('lib_map.json','r').read()
 
-        iterations += 1
+    # Path to the hypothetical JSON file containing library paths
+    json_file_path = library_json_file.get(library_name)
+    
+    try:
+        with open(json_file_path, 'r') as json_file:
+            library_data = json.load(json_file)
+            
+            # Returning the library path
+            return library_data.get(library_name)
+    except Exception as e:
+        print(f"Error reading the JSON file: {e}")
+        return None
+
 
 def main():
-    usage = "Usage: auto_create_verilog.py [--help] --prompt=<prompt> --name=<module name> --testbench=<testbench file> --iter=<iterations> --model=<llm model> --model_id=<model id> --log=<log file>\n\n\t-h|--help: Prints this usage message\n\n\t-p|--prompt: The initial design prompt for the Verilog module\n\n\t-n|--name: The module name, must match the testbench expected module name\n\n\t-t|--testbench: The testbench file to be run\n\n\t-i|--iter: [Optional] Number of iterations before the tool quits (defaults to 10)\n\n\t-m|--model: The LLM to use for this generation. Must be one of the following\n\t\t- ChatGPT3p5\n\t\t- ChatGPT4\n\t\t- Claude\n\n\t-l|--log: [Optional] Log the output of the model to the given file"
+    
 
-    try:
-        opts, args = getopt.getopt(sys.argv[1:], "hp:n:t:i:m:l", ["help", "prompt=", "name=", "testbench=", "iter=", "model=", "model_id=","log="])
-    except getopt.GetoptError as err:
-        print(err)
-        print(usage)
-        sys.exit(2)
+    libraries = ["OpenCores", "OpenTitan", "Other"]
+    interfaces = ["FIFO", "AMBA Bus", "WishBone"]
 
-
-    # Default values
-    max_iterations = 10
-
-    for opt, arg in opts:
-        if opt in ("-h", "--help"):
-            print(usage)
-            sys.exit()
-        elif opt in ("-p", "--prompt"):
-            prompt = arg
-        elif opt in ("-n", "--name"):
-            module = arg
-        elif opt in ("-t", "--testbench"):
-            testbench = arg
-        elif opt in ("-i", "--iter"):
-            max_iterations = int(arg)
-        elif opt in ("-m", "--model"):
-            model = arg
-        elif opt in ("-id","--model_id"):
-            model_id = arg
-        elif opt in ("-l", "--log"):
-            log = arg
+    log = 'your-log-file-path.log'  # replace with actual log file path
+    ensure_log_file_exists(log=log)
 
 
-    # Check if prompt and module are set
-    try:
-        prompt
-    except NameError:
-        print("Prompt not set")
-        print(usage)
-        sys.exit(2)
+    fetch_ip = input("Fetch IP Blocks (Y/N)? ")
 
-    try:
-        module
-    except NameError:
-        print("Module not set")
-        print(usage)
-        sys.exit(2)
+    if fetch_ip.lower() == 'y':
+        
+        components = get_and_confirm_design_components()
 
-    try:
-        testbench
-    except NameError:
-        print("Testbench not set")
-        print(usage)
-        sys.exit(2)
+        if components:      
 
-    try:
-        model
-    except NameError:
-        print("LLM not set")
-        print(usage)
-        sys.exit(2)
+            print("Which library to use?")
+            for i, lib in enumerate(libraries):
+                print(f"{i}. {lib}")
+            lib_choice = int(input())
 
-    verilog_loop(prompt, module, testbench, max_iterations, model, log)
+            if 0 <= lib_choice < len(libraries):
+                print("Which communication interface to use?")
+                for i, intf in enumerate(interfaces):
+                    print(f"{i}. {intf}")
+                intf_choice = int(input())
+
+                if 0 <= intf_choice < len(interfaces):
+                    library = libraries[lib_choice]
+                    interface = interfaces[intf_choice]
+
+                    library_json = fetch_library_path(library)
+
+                    if library_structure_json is None:
+                        return None
+
+                    new_prompt = f"""
+    You are tasked to write a Verilog design which incorporates the following submodules: {components}. These submodules are components of a design utilizing the {library} library with the following structure:
+
+{library_json}
+
+The design should use the {interface} communication interface. If any submodule already has a communication interface, replace it with the {interface}. Using the provided library structure, fetch the paths to the appropriate IP blocks for each submodule.
+
+Return the final list of IP block paths for the submodules as a dictionary, with each submodule as the key and its corresponding IP block path as the value.
+    """
+
+                    print(new_prompt)  # For testing purposes, remove or comment this line in production code
+
+
+
+
+                    # conv = cv.Conversation(log_file=log)
+                    # conv.add_message("user", new_prompt)
+                    # response = generate_response(conv)
+
+                    # # Assuming the response contains the paths of IP blocks in JSON format
+                    # ip_blocks = json.loads(response)
+                    # print(json.dumps(ip_blocks, indent=4))
+                else:
+                    print("Invalid interface choice.")
+            else:
+                print("Invalid library choice.")
+    elif fetch_ip.lower() == 'n':
+        return
+    # else:
+    #     print("Invalid option. Please specify Y or N.")
+
 
 if __name__ == "__main__":
     main()

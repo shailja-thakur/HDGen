@@ -7,7 +7,7 @@ from anthropic import AsyncAnthropic, HUMAN_PROMPT, AI_PROMPT
 import os
 from conversation import Conversation
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+# from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 import torch
 
 
@@ -91,60 +91,60 @@ class Claude(AbstractLLM):
 
 
 
-class CodeLlama(AbstractLLM):
-    """CodeLlama Large Language Model."""
+# class CodeLlama(AbstractLLM):
+#     """CodeLlama Large Language Model."""
 
-    def __init__(self, model_id="codellama/CodeLlama-13b-hf"):
-        super().__init__()
+#     def __init__(self, model_id="codellama/CodeLlama-13b-hf"):
+#         super().__init__()
         
-        self.model_id = model_id
+#         self.model_id = model_id
 
-        self.tokenizer = CodeLlamaTokenizer.from_pretrained(self.model_id)
-        self.model = LlamaForCausalLM.from_pretrained(self.model_id, device_map="auto",torch_dtype = "auto")
+#         self.tokenizer = CodeLlamaTokenizer.from_pretrained(self.model_id)
+#         self.model = LlamaForCausalLM.from_pretrained(self.model_id, device_map="auto",torch_dtype = "auto")
 
-    def _format_prompt(self, conversation: Conversation) -> str:
-        # Extract the system prompt, initial user prompt, and the most recent user prompt and answer.
-        messages = conversation.get_messages()
+#     def _format_prompt(self, conversation: Conversation) -> str:
+#         # Extract the system prompt, initial user prompt, and the most recent user prompt and answer.
+#         messages = conversation.get_messages()
 
-        prompt = ""
+#         prompt = ""
 
-        for message in messages:
-            # Append system messages with the "<<SYS>>" tags
-            if message['role'] == 'system':
-                prompt = f"<<SYS>>\n{system_prompt}\n<</SYS>>\n\n"
-            # Append user messages with the "Human" prefix
-            elif message['role'] == 'user':
-                prompt += f"{most_recent_user_prompt.strip()}"
-            # Append assistant messages with the "Assistant" prefix wrapped with [INST] tags
-            elif message['role'] == 'assistant':
-                prompt += f"<s>[INST] {message['content']} [/INST]"
+#         for message in messages:
+#             # Append system messages with the "<<SYS>>" tags
+#             if message['role'] == 'system':
+#                 prompt = f"<<SYS>>\n{system_prompt}\n<</SYS>>\n\n"
+#             # Append user messages with the "Human" prefix
+#             elif message['role'] == 'user':
+#                 prompt += f"{most_recent_user_prompt.strip()}"
+#             # Append assistant messages with the "Assistant" prefix wrapped with [INST] tags
+#             elif message['role'] == 'assistant':
+#                 prompt += f"<s>[INST] {message['content']} [/INST]"
 
 
 
-        return prompt
+#         return prompt
 
-    def generate(self, conversation: Conversation):
+#     def generate(self, conversation: Conversation):
 
-        # Prepare the prompt using the method we created
-        prompt = self._format_prompt(conversation)
+#         # Prepare the prompt using the method we created
+#         prompt = self._format_prompt(conversation)
 
-        inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda")
+#         inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda")
         
-        output = self.model.generate(
-            inputs["input_ids"],
-            max_new_tokens=200,
-            do_sample=True,
-            top_p=0.9,
-            temperature=0.1,
-        )
+#         output = self.model.generate(
+#             inputs["input_ids"],
+#             max_new_tokens=200,
+#             do_sample=True,
+#             top_p=0.9,
+#             temperature=0.1,
+#         )
 
-        # Move the output tensor to the CPU
-        output = output[0].to("cpu")
+#         # Move the output tensor to the CPU
+#         output = output[0].to("cpu")
 
-        # Decode the output to get the generated text
-        generated_output = self.tokenizer.decode(output, skip_special_tokens=True)
+#         # Decode the output to get the generated text
+#         generated_output = self.tokenizer.decode(output, skip_special_tokens=True)
         
-        # Extract only the generated response
-        response = generated_output.split("</s>")[-1].strip()
+#         # Extract only the generated response
+#         response = generated_output.split("</s>")[-1].strip()
         
-        return response
+#         return response

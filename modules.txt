@@ -1,0 +1,23 @@
+SPI Host 0
+OTBN
+SPI Host 1
+USB
+4x UART
+GPIO
+3x 12C
+SPI Device
+PWM
+Timers
+Alert Handler
+Entropy Source
+OTP (Fuse) Controller
+Life Cycle
+Power Manager
+Sysrst Controller
+Pinmux/ Padctrl
+AON Timers
+Cik/Rst Managers
+ADC Controller
+Sensor Control
+Padring
+Analog Sensor Top
